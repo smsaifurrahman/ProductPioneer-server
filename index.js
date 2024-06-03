@@ -49,6 +49,20 @@ async function run() {
          });
       };
 
+      // verify admin middleware
+      const verifyAdmin = async (req, res, next) => {
+         const email = req.decoded.email;
+
+         const query = { email: email };
+         const user = await userCollection.findOne(query);
+
+         const isAdmin = user?.role === "admin";
+         if (!isAdmin) {
+            return res.status(403).send({ message: "forbidden access" });
+         }
+         next();
+      };
+
       // jwt related APIs
       app.post("/jwt", async (req, res) => {
          const user = req.body;
@@ -63,7 +77,7 @@ async function run() {
       // add user in db
       app.post("/users", async (req, res) => {
          const user = req.body;
-         console.log("from user", user);
+      
          const query = { email: user.email };
          const existingUser = await userCollection.findOne(query);
          if (existingUser) {
@@ -76,13 +90,42 @@ async function run() {
          res.send(result);
       });
 
-      // get a user info by email from db
-      app.get("/user/:email", verifyToken, async (req, res) => {
-        
+      // get all users from db
+      app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+         const result = await userCollection.find().toArray();
+         res.send(result);
+      });
+
+      // update a user role
+
+      app.patch("/users/update/:email", async (req, res) => {
          const email = req.params.email;
          console.log(email);
+         const userRole = req.body;
+         console.log(userRole);
+         const query = { email };
+         const updateDoc = {
+            $set: { ...userRole },
+         };
+         const result = await userCollection.updateOne(query, updateDoc);
+         res.send(result);
+      });
+
+      //delete a user
+      app.delete('/users/:email', async(req,res)=> {
+         const email = req.params.email;
+         const query = {email};
+         const result = await userCollection.deleteOne(query);
+         res.send(result)
+      })
+
+
+      // get a user info by email from db
+      app.get("/user/:email", verifyToken, async (req, res) => {  
+         const email = req.params.email;
+
          const result = await userCollection.findOne({ email });
-         console.log('for sidebar',result);
+         
          res.send(result);
       });
 
