@@ -6,7 +6,7 @@ const cors = require("cors");
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, Timestamp, ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 
 //Middleware
@@ -31,6 +31,7 @@ async function run() {
       await client.connect();
 
       const userCollection = client.db("productPioneerDB").collection("users");
+      const productCollection = client.db("productPioneerDB").collection("products");
 
       //middlewares verify token
       const verifyToken = (req, res, next) => {
@@ -101,12 +102,27 @@ async function run() {
 
       app.patch("/users/update/:email", async (req, res) => {
          const email = req.params.email;
-         console.log(email);
+
          const userRole = req.body;
-         console.log(userRole);
+    
          const query = { email };
          const updateDoc = {
             $set: { ...userRole },
+         };
+         const result = await userCollection.updateOne(query, updateDoc);
+         res.send(result);
+      });
+
+      // update a user's membership status 
+
+      app.patch("/users/update-membership/:email", async (req, res) => {
+         const email = req.params.email;
+         console.log(email);
+         const membershipStatus = req.body;
+         console.log(membershipStatus);
+         const query = { email };
+         const updateDoc = {
+            $set: { ...membershipStatus },
          };
          const result = await userCollection.updateOne(query, updateDoc);
          res.send(result);
@@ -124,11 +140,60 @@ async function run() {
       // get a user info by email from db
       app.get("/user/:email", verifyToken, async (req, res) => {  
          const email = req.params.email;
-
          const result = await userCollection.findOne({ email });
-         
          res.send(result);
       });
+
+
+      // Product apis
+      // add a product
+      app.post("/products", async (req, res) => {
+         const product = req.body;
+         const productData = {...product,timestamp: Date.now()}
+         // console.log(productData);
+         const result = await productCollection.insertOne(productData);
+         // console.log(result);
+         res.send(result);
+      });
+
+      // get all products for a single user
+      app.get("/products/:email", verifyToken ,async (req, res) => {
+         const email = req.decoded.email;
+         const query = {'productOwner.email': email};
+         // console.log(query);
+         const result = await productCollection.find(query).toArray();
+         // console.log(result);
+         res.send(result);
+      });
+
+      // get a single product
+
+      app.get('/product/:id', async(req,res)=> {
+         const id = req.params.id;
+        
+         const query = {_id: new ObjectId(id)};
+        
+         const result = await productCollection.findOne(query);
+     
+         res.send(result)
+      });
+
+      // update a product
+      app.patch("/products/:id", async (req, res) => {
+         const id = req.params.id;
+         console.log(id);
+         const updatedProduct = req.body;
+         console.log(updatedProduct);
+         const query = { _id: new ObjectId(id) };
+         const updateDoc = {
+            $set: { ...updatedProduct },
+         };
+         const result = await productCollection.updateOne(query, updateDoc);
+         res.send(result);
+      });
+
+
+
 
       //  //create-payment-intent
       app.post("/create-payment-intent", verifyToken, async (req, res) => {
