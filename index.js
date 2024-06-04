@@ -6,7 +6,12 @@ const cors = require("cors");
 require("dotenv").config();
 const jwt = require("jsonwebtoken");
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
-const { MongoClient, ServerApiVersion, Timestamp, ObjectId } = require("mongodb");
+const {
+   MongoClient,
+   ServerApiVersion,
+   Timestamp,
+   ObjectId,
+} = require("mongodb");
 const port = process.env.PORT || 5000;
 
 //Middleware
@@ -31,7 +36,9 @@ async function run() {
       await client.connect();
 
       const userCollection = client.db("productPioneerDB").collection("users");
-      const productCollection = client.db("productPioneerDB").collection("products");
+      const productCollection = client
+         .db("productPioneerDB")
+         .collection("products");
 
       //middlewares verify token
       const verifyToken = (req, res, next) => {
@@ -64,6 +71,19 @@ async function run() {
          }
          next();
       };
+      // verify admin middleware
+      const verifyModerator = async (req, res, next) => {
+         const email = req.decoded.email;
+
+         const query = { email: email };
+         const user = await userCollection.findOne(query);
+
+         const isAdmin = user?.role === "moderator";
+         if (!isAdmin) {
+            return res.status(403).send({ message: "forbidden access" });
+         }
+         next();
+      };
 
       // jwt related APIs
       app.post("/jwt", async (req, res) => {
@@ -79,7 +99,7 @@ async function run() {
       // add user in db
       app.post("/users", async (req, res) => {
          const user = req.body;
-      
+
          const query = { email: user.email };
          const existingUser = await userCollection.findOne(query);
          if (existingUser) {
@@ -104,7 +124,7 @@ async function run() {
          const email = req.params.email;
 
          const userRole = req.body;
-    
+
          const query = { email };
          const updateDoc = {
             $set: { ...userRole },
@@ -113,7 +133,7 @@ async function run() {
          res.send(result);
       });
 
-      // update a user's membership status 
+      // update a user's membership status
 
       app.patch("/users/update-membership/:email", async (req, res) => {
          const email = req.params.email;
@@ -129,27 +149,25 @@ async function run() {
       });
 
       //delete a user
-      app.delete('/users/:email', async(req,res)=> {
+      app.delete("/users/:email", async (req, res) => {
          const email = req.params.email;
-         const query = {email};
+         const query = { email };
          const result = await userCollection.deleteOne(query);
-         res.send(result)
-      })
-
+         res.send(result);
+      });
 
       // get a user info by email from db
-      app.get("/user/:email", verifyToken, async (req, res) => {  
+      app.get("/user/:email", verifyToken, async (req, res) => {
          const email = req.params.email;
          const result = await userCollection.findOne({ email });
          res.send(result);
       });
 
-
       // Product apis
       // add a product
       app.post("/products", async (req, res) => {
          const product = req.body;
-         const productData = {...product,timestamp: Date.now()}
+         const productData = { ...product, timestamp: Date.now() };
          // console.log(productData);
          const result = await productCollection.insertOne(productData);
          // console.log(result);
@@ -157,9 +175,9 @@ async function run() {
       });
 
       // get all products for a single user
-      app.get("/products/:email", verifyToken ,async (req, res) => {
+      app.get("/products/:email", verifyToken, async (req, res) => {
          const email = req.decoded.email;
-         const query = {'productOwner.email': email};
+         const query = { "productOwner.email": email };
          // console.log(query);
          const result = await productCollection.find(query).toArray();
          // console.log(result);
@@ -168,22 +186,20 @@ async function run() {
 
       // get a single product
 
-      app.get('/product/:id', async(req,res)=> {
+      app.get("/product/:id", async (req, res) => {
          const id = req.params.id;
-        
-         const query = {_id: new ObjectId(id)};
-        
+
+         const query = { _id: new ObjectId(id) };
+
          const result = await productCollection.findOne(query);
-     
-         res.send(result)
+
+         res.send(result);
       });
 
       // update a product
       app.patch("/products/:id", async (req, res) => {
          const id = req.params.id;
-         console.log(id);
          const updatedProduct = req.body;
-         console.log(updatedProduct);
          const query = { _id: new ObjectId(id) };
          const updateDoc = {
             $set: { ...updatedProduct },
@@ -192,7 +208,46 @@ async function run() {
          res.send(result);
       });
 
+      //delete a product
+      app.delete("/products/:id", async (req, res) => {
+         const id = req.params.id;
+         const query = { _id: new ObjectId(id) };
+         const result = await productCollection.deleteOne(query);
+         res.send(result);
+      });
 
+      // moderator apis
+      // Get all products
+      app.get("/products", async (req, res) => {
+         const result = await productCollection.find().toArray();
+         res.send(result);
+      });
+      // update a product status
+      app.patch("/products/update-status/:id", async (req, res) => {
+         const id = req.params.id;
+         const updatedStatus = req.body;
+         const query = { _id: new ObjectId(id) };
+         const updateDoc = {
+            $set: { ...updatedStatus },
+         };
+         const result = await productCollection.updateOne(query, updateDoc);
+         res.send(result);
+      });
+      
+      // make a product featured
+      app.patch("/products/make-featured/:id", async (req, res) => {
+         const id = req.params.id;
+         console.log(id);
+         const makeFeatured = req.body;
+         console.log(makeFeatured);
+         const options = { upsert:true }
+         const query = { _id: new ObjectId(id) };
+         const updateDoc = {
+            $set: { ...makeFeatured },
+         };
+         const result = await productCollection.updateOne(query, updateDoc, options);
+         res.send(result);
+      });
 
 
       //  //create-payment-intent
@@ -213,7 +268,6 @@ async function run() {
          //send client secret as response
          res.send({ clientSecret: client_secret });
       });
-
 
       // Send a ping to confirm a successful connection
       await client.db("admin").command({ ping: 1 });
