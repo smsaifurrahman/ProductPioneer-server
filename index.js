@@ -266,7 +266,7 @@ async function run() {
             $inc: { votes: 1 },
          };
          const result = await productCollection.updateOne(query, updateDoc);
-         console.log( 'vote', result);
+         // console.log( 'vote', result);
          res.send(result);
       });
       
@@ -285,10 +285,17 @@ async function run() {
 
 
       // Get all featured products
-      app.get('/products-featured', async(req,res)=> {
-         // const featured = true;
+      app.get('/featured', async(req,res)=> {
+         console.log('Fetching featured products');
          const query = {featured:true};
          const result = await productCollection.find(query).sort({ timestamp: -1 }).toArray();
+         res.send(result)
+      });
+      // get all trending products
+      app.get('/trending', async(req,res)=> {
+         const query= {status:'Accepted'}
+         const result = await productCollection.find(query).sort({ votes: -1 }).toArray();
+         console.log(result);
          res.send(result)
       })
 
