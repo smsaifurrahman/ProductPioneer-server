@@ -30,6 +30,7 @@ const client = new MongoClient(uri, {
    },
 });
 
+
 async function run() {
    try {
       // Connect the client to the server	(optional starting in v4.7)
@@ -40,23 +41,27 @@ async function run() {
          .db("productPioneerDB")
          .collection("products");
 
-      //middlewares verify token
-      const verifyToken = (req, res, next) => {
-         //   console.log( 'inside verify token', req.headers.authorization);
-         if (!req.headers.authorization) {
-            return res.status(401).send({ message: "forbidden access" });
-         }
 
-         const token = req.headers.authorization.split(" ")[1];
-         jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-            if (err) {
-               return res.status(401).send({ message: "forbidden access" });
-            }
-            req.decoded = decoded;
-            //  console.log(req.decoded);
-            next();
-         });
-      };
+         
+ //middlewares verify token
+ const verifyToken = (req, res, next) => {
+   //   console.log( 'inside verify token', req.headers.authorization);
+   if (!req.headers.authorization) {
+      return res.status(401).send({ message: "forbidden access" });
+   }
+
+   const token = req.headers.authorization.split(" ")[1];
+   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+      if (err) {
+         return res.status(401).send({ message: "forbidden access" });
+      }
+      req.decoded = decoded;
+      //  console.log(req.decoded);
+      next();
+   });
+};
+
+     
 
       // verify admin middleware
       const verifyAdmin = async (req, res, next) => {
@@ -218,10 +223,29 @@ async function run() {
 
       // moderator apis
       // Get all products
+      // app.get("/products", async (req, res) => {
+      //    const result = await productCollection.find().toArray();
+      //    res.send(result);
+      // });
       app.get("/products", async (req, res) => {
-         const result = await productCollection.find().toArray();
+         const result = await productCollection.aggregate([
+           {
+             $addFields: {
+               isPending: { $cond: { if: { $eq: ["$status", "Pending"] }, then: 1, else: 0 } }
+             }
+           },
+           {
+             $sort: { isPending: -1 }
+           },
+           {
+             $project: { isPending: 0 }
+           }
+         ]).toArray();
          res.send(result);
-      });
+       });
+       
+
+
       // update a product status
       app.patch("/products/update-status/:id", async (req, res) => {
          const id = req.params.id;
@@ -234,12 +258,22 @@ async function run() {
          res.send(result);
       });
       
+      // update vote counts
+      app.patch("/products/increase-vote/:id", async (req, res) => {
+         const id = req.params.id;
+         const query = { _id: new ObjectId(id) };
+         const updateDoc = {
+            $inc: { votes: 1 },
+         };
+         const result = await productCollection.updateOne(query, updateDoc);
+         console.log( 'vote', result);
+         res.send(result);
+      });
+      
       // make a product featured
       app.patch("/products/make-featured/:id", async (req, res) => {
          const id = req.params.id;
-         console.log(id);
          const makeFeatured = req.body;
-         console.log(makeFeatured);
          const options = { upsert:true }
          const query = { _id: new ObjectId(id) };
          const updateDoc = {
@@ -249,6 +283,14 @@ async function run() {
          res.send(result);
       });
 
+
+      // Get all featured products
+      app.get('/products-featured', async(req,res)=> {
+         // const featured = true;
+         const query = {featured:true};
+         const result = await productCollection.find(query).sort({ timestamp: -1 }).toArray();
+         res.send(result)
+      })
 
       //  //create-payment-intent
       app.post("/create-payment-intent", verifyToken, async (req, res) => {
