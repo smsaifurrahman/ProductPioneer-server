@@ -37,9 +37,8 @@ async function run() {
       await client.connect();
 
       const userCollection = client.db("productPioneerDB").collection("users");
-      const productCollection = client
-         .db("productPioneerDB")
-         .collection("products");
+      const reviewCollection = client.db("productPioneerDB").collection("reviews");
+      const productCollection = client.db("productPioneerDB").collection("products");
 
 
          
@@ -261,14 +260,46 @@ async function run() {
       // update vote counts
       app.patch("/products/increase-vote/:id", async (req, res) => {
          const id = req.params.id;
+         const voterEmail = req.body.email; 
+         console.log(voterEmail);
          const query = { _id: new ObjectId(id) };
+         const product = await productCollection.findOne(query);
+
+         if (!product.votedBy) {
+            product.votedBy = [];
+          }
+         if(product.votedBy && product.votedBy.includes(voterEmail)){
+            return res.status(400).send({message:'You have voted already'})
+         }
+
          const updateDoc = {
+            $push: {votedBy: voterEmail},
             $inc: { votes: 1 },
          };
          const result = await productCollection.updateOne(query, updateDoc);
          // console.log( 'vote', result);
          res.send(result);
       });
+      
+      // update reported product
+      app.patch("/products/report/:id", async (req, res) => {
+         const id = req.params.id;
+         const query = {_id: new ObjectId(id)}
+         const updateDoc = {
+            $inc: { reported: 1 },
+         };
+         const result = await productCollection.updateOne(query, updateDoc);
+         // console.log( 'vote', result);
+         res.send(result);
+      });
+
+           // Get all reported products
+           app.get('/reported-products', async(req,res)=> {
+            console.log('reported');
+            const query = {reported: {$exists: true}};
+            const result = await productCollection.find(query).toArray();
+            res.send(result)
+         });
       
       // make a product featured
       app.patch("/products/make-featured/:id", async (req, res) => {
@@ -286,18 +317,35 @@ async function run() {
 
       // Get all featured products
       app.get('/featured', async(req,res)=> {
-         console.log('Fetching featured products');
          const query = {featured:true};
-         const result = await productCollection.find(query).sort({ timestamp: -1 }).toArray();
+         const result = await productCollection.find(query).sort({ timestamp: -1 }).limit(4).toArray();
          res.send(result)
       });
       // get all trending products
       app.get('/trending', async(req,res)=> {
          const query= {status:'Accepted'}
-         const result = await productCollection.find(query).sort({ votes: -1 }).toArray();
-         console.log(result);
+         const result = await productCollection.find(query).sort({ votes: -1 }).limit(6).toArray();
          res.send(result)
-      })
+      });
+
+      // Review Api
+       // add a review
+       app.post("/reviews", async (req, res) => {
+         const review = req.body;
+         const reviewData = { ...review, timestamp: Date.now() };
+         const result = await reviewCollection.insertOne(reviewData);
+         res.send(result);
+      });
+
+      // get all review by id
+
+      app.get("/reviews/:id", async (req, res) => {
+         const id = req.params.id;
+         const query = { productId: id};
+         const result = await reviewCollection.find(query).toArray();
+         // console.log(result);
+         res.send(result);
+      });
 
       //  //create-payment-intent
       app.post("/create-payment-intent", verifyToken, async (req, res) => {
