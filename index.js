@@ -30,37 +30,39 @@ const client = new MongoClient(uri, {
    },
 });
 
-
 async function run() {
    try {
       // Connect the client to the server	(optional starting in v4.7)
       await client.connect();
 
       const userCollection = client.db("productPioneerDB").collection("users");
-      const reviewCollection = client.db("productPioneerDB").collection("reviews");
-      const productCollection = client.db("productPioneerDB").collection("products");
+      const reviewCollection = client
+         .db("productPioneerDB")
+         .collection("reviews");
+      const productCollection = client
+         .db("productPioneerDB")
+         .collection("products");
+      const couponCollection = client
+         .db("productPioneerDB")
+         .collection("coupons");
 
+      //middlewares verify token
+      const verifyToken = (req, res, next) => {
+         //   console.log( 'inside verify token', req.headers.authorization);
+         if (!req.headers.authorization) {
+            return res.status(401).send({ message: "forbidden access" });
+         }
 
-         
- //middlewares verify token
- const verifyToken = (req, res, next) => {
-   //   console.log( 'inside verify token', req.headers.authorization);
-   if (!req.headers.authorization) {
-      return res.status(401).send({ message: "forbidden access" });
-   }
-
-   const token = req.headers.authorization.split(" ")[1];
-   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-      if (err) {
-         return res.status(401).send({ message: "forbidden access" });
-      }
-      req.decoded = decoded;
-      //  console.log(req.decoded);
-      next();
-   });
-};
-
-     
+         const token = req.headers.authorization.split(" ")[1];
+         jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+            if (err) {
+               return res.status(401).send({ message: "forbidden access" });
+            }
+            req.decoded = decoded;
+            //  console.log(req.decoded);
+            next();
+         });
+      };
 
       // verify admin middleware
       const verifyAdmin = async (req, res, next) => {
@@ -169,7 +171,20 @@ async function run() {
 
       // Product apis
       // add a product
-      app.post("/products", async (req, res) => {
+      app.post("/products", verifyToken, async (req, res) => {
+         console.log('adding');
+         const userEmail = req.decoded.email;
+         const query = {email: userEmail}
+         const user = await userCollection.findOne(query);
+         if(user.membership=== 'unverified')  {
+           const productCount = await productCollection.countDocuments({'productOwner.email': userEmail});
+           if(productCount > 0) {
+            return res.send({message: 'unverified'})
+           }
+           console.log(productCount);
+         }
+
+
          const product = req.body;
          const productData = { ...product, timestamp: Date.now() };
          // console.log(productData);
@@ -227,23 +242,29 @@ async function run() {
       //    res.send(result);
       // });
       app.get("/products", async (req, res) => {
-         const result = await productCollection.aggregate([
-           {
-             $addFields: {
-               isPending: { $cond: { if: { $eq: ["$status", "Pending"] }, then: 1, else: 0 } }
-             }
-           },
-           {
-             $sort: { isPending: -1 }
-           },
-           {
-             $project: { isPending: 0 }
-           }
-         ]).toArray();
+         const result = await productCollection
+            .aggregate([
+               {
+                  $addFields: {
+                     isPending: {
+                        $cond: {
+                           if: { $eq: ["$status", "Pending"] },
+                           then: 1,
+                           else: 0,
+                        },
+                     },
+                  },
+               },
+               {
+                  $sort: { isPending: -1 },
+               },
+               {
+                  $project: { isPending: 0 },
+               },
+            ])
+            .toArray();
          res.send(result);
-       });
-       
-
+      });
 
       // update a product status
       app.patch("/products/update-status/:id", async (req, res) => {
@@ -256,35 +277,35 @@ async function run() {
          const result = await productCollection.updateOne(query, updateDoc);
          res.send(result);
       });
-      
+
       // update vote counts
       app.patch("/products/increase-vote/:id", async (req, res) => {
          const id = req.params.id;
-         const voterEmail = req.body.email; 
+         const voterEmail = req.body.email;
          console.log(voterEmail);
          const query = { _id: new ObjectId(id) };
          const product = await productCollection.findOne(query);
 
          if (!product.votedBy) {
             product.votedBy = [];
-          }
-         if(product.votedBy && product.votedBy.includes(voterEmail)){
-            return res.status(400).send({message:'You have voted already'})
+         }
+         if (product.votedBy && product.votedBy.includes(voterEmail)) {
+            return res.status(400).send({ message: "You have voted already" });
          }
 
          const updateDoc = {
-            $push: {votedBy: voterEmail},
+            $push: { votedBy: voterEmail },
             $inc: { votes: 1 },
          };
          const result = await productCollection.updateOne(query, updateDoc);
          // console.log( 'vote', result);
          res.send(result);
       });
-      
+
       // update reported product
       app.patch("/products/report/:id", async (req, res) => {
          const id = req.params.id;
-         const query = {_id: new ObjectId(id)}
+         const query = { _id: new ObjectId(id) };
          const updateDoc = {
             $inc: { reported: 1 },
          };
@@ -293,44 +314,55 @@ async function run() {
          res.send(result);
       });
 
-           // Get all reported products
-           app.get('/reported-products', async(req,res)=> {
-            console.log('reported');
-            const query = {reported: {$exists: true}};
-            const result = await productCollection.find(query).toArray();
-            res.send(result)
-         });
-      
+      // Get all reported products
+      app.get("/reported-products", async (req, res) => {
+         console.log("reported");
+         const query = { reported: { $exists: true } };
+         const result = await productCollection.find(query).toArray();
+         res.send(result);
+      });
+
       // make a product featured
       app.patch("/products/make-featured/:id", async (req, res) => {
          const id = req.params.id;
          const makeFeatured = req.body;
-         const options = { upsert:true }
+         const options = { upsert: true };
          const query = { _id: new ObjectId(id) };
          const updateDoc = {
             $set: { ...makeFeatured },
          };
-         const result = await productCollection.updateOne(query, updateDoc, options);
+         const result = await productCollection.updateOne(
+            query,
+            updateDoc,
+            options
+         );
          res.send(result);
       });
 
-
       // Get all featured products
-      app.get('/featured', async(req,res)=> {
-         const query = {featured:true};
-         const result = await productCollection.find(query).sort({ timestamp: -1 }).limit(4).toArray();
-         res.send(result)
+      app.get("/featured", async (req, res) => {
+         const query = { featured: true };
+         const result = await productCollection
+            .find(query)
+            .sort({ timestamp: -1 })
+            .limit(4)
+            .toArray();
+         res.send(result);
       });
       // get all trending products
-      app.get('/trending', async(req,res)=> {
-         const query= {status:'Accepted'}
-         const result = await productCollection.find(query).sort({ votes: -1 }).limit(6).toArray();
-         res.send(result)
+      app.get("/trending", async (req, res) => {
+         const query = { status: "Accepted" };
+         const result = await productCollection
+            .find(query)
+            .sort({ votes: -1 })
+            .limit(6)
+            .toArray();
+         res.send(result);
       });
 
       // Review Api
-       // add a review
-       app.post("/reviews", async (req, res) => {
+      // add a review
+      app.post("/reviews", async (req, res) => {
          const review = req.body;
          const reviewData = { ...review, timestamp: Date.now() };
          const result = await reviewCollection.insertOne(reviewData);
@@ -341,11 +373,66 @@ async function run() {
 
       app.get("/reviews/:id", async (req, res) => {
          const id = req.params.id;
-         const query = { productId: id};
+         const query = { productId: id };
          const result = await reviewCollection.find(query).toArray();
          // console.log(result);
          res.send(result);
       });
+
+      // Coupons APIs
+      // add a Coupon
+      app.post("/coupons", verifyToken, async (req, res) => {
+         const coupon = req.body;
+         const couponData = { ...coupon };
+         const result = await couponCollection.insertOne(couponData);
+
+         res.send(result);
+      });
+
+      // get all trending products
+      // get all trending products
+      app.get("/coupons", async (req, res) => {
+         const result = await couponCollection.find().toArray();
+         res.send(result);
+      });
+
+      // update a coupon
+      app.patch("/coupons/:id", verifyToken, async (req, res) => {
+         const id = req.params.id;
+         const coupon = req.body;
+         const query = { _id: new ObjectId(id) };
+         const updateDoc = {
+            $set: {
+               ...coupon,
+            },
+         };
+         const result = await couponCollection.updateOne(query, updateDoc);
+         console.log("coupon", result);
+         res.send(result);
+      });
+
+      //delete a coupon
+      app.delete("/coupons/:id", async (req, res) => {
+         const id = req.params.id;
+         const query = { _id: new ObjectId(id) };
+         const result = await couponCollection.deleteOne(query);
+         res.send(result);
+      });
+
+
+      //get a coupon discount percent
+      app.get("/coupons/discount/:code", async (req, res) => {
+         const couponCode = req.params.code;
+         const query = { couponCode: couponCode };
+         const result = await couponCollection.findOne(query);
+         if(!result) {
+            return res.send({message: 'invalid coupon'})
+         }
+         console.log(result);
+         res.send(result.discountPercent);
+      });
+
+
 
       //  //create-payment-intent
       app.post("/create-payment-intent", verifyToken, async (req, res) => {
