@@ -33,7 +33,7 @@ const client = new MongoClient(uri, {
 async function run() {
    try {
       // Connect the client to the server	(optional starting in v4.7)
-      await client.connect();
+      // await client.connect();
 
       const userCollection = client.db("productPioneerDB").collection("users");
       const reviewCollection = client
@@ -172,18 +172,19 @@ async function run() {
       // Product apis
       // add a product
       app.post("/products", verifyToken, async (req, res) => {
-         console.log('adding');
+         console.log("adding");
          const userEmail = req.decoded.email;
-         const query = {email: userEmail}
+         const query = { email: userEmail };
          const user = await userCollection.findOne(query);
-         if(user.membership=== 'unverified')  {
-           const productCount = await productCollection.countDocuments({'productOwner.email': userEmail});
-           if(productCount > 0) {
-            return res.send({message: 'unverified'})
-           }
-           console.log(productCount);
+         if (user.membership === "unverified") {
+            const productCount = await productCollection.countDocuments({
+               "productOwner.email": userEmail,
+            });
+            if (productCount > 0) {
+               return res.send({ message: "unverified" });
+            }
+            console.log(productCount);
          }
-
 
          const product = req.body;
          const productData = { ...product, timestamp: Date.now() };
@@ -389,8 +390,7 @@ async function run() {
          res.send(result);
       });
 
-      // get all trending products
-      // get all trending products
+      // get all Coupons
       app.get("/coupons", async (req, res) => {
          const result = await couponCollection.find().toArray();
          res.send(result);
@@ -419,20 +419,61 @@ async function run() {
          res.send(result);
       });
 
-
       //get a coupon discount percent
       app.get("/coupons/discount/:code", async (req, res) => {
          const couponCode = req.params.code;
          const query = { couponCode: couponCode };
          const result = await couponCollection.findOne(query);
-         if(!result) {
-            return res.send({message: 'invalid coupon'})
+         if (!result) {
+            return res.send({ message: "invalid coupon" });
          }
-         console.log(result);
+
          res.send(result.discountPercent);
       });
 
+      //Get all products
+      app.get("/all-products", async (req, res) => {
+         const size = parseInt(req.query.size);
+         const page = parseInt(req.query.page) - 1;
+         const search = req.query.search;
+         let query = { status: "Accepted" };
+         if (search) {
+            const lowercasedSearch = search.toLowerCase();
+            query["tags.text"] = { $in: [new RegExp(lowercasedSearch, "i")] }; // Using regex for case-insensitive search
+         }
+         const result = await productCollection
+            .find(query)
+            .skip(page * size)
+            .limit(size)
+            .toArray();
+         console.log(result);
+         res.send(result);
+      });
 
+      //Get all products count
+      app.get("/products-count", async (req, res) => {
+         const query = { status: "Accepted" };
+         const search = req.query.search;
+         if (search) {
+            const lowercasedSearch = search.toLowerCase();
+            query["tags.text"] = { $in: [new RegExp(lowercasedSearch, "i")] }; // Using regex for case-insensitive search
+         }
+         const count = await productCollection.countDocuments(query);
+         res.send({ count });
+      });
+
+      app.get("/statistics", verifyToken,verifyAdmin,  async (req, res) => {
+         const totalUsers = await userCollection.countDocuments();
+         const totalProducts = await productCollection.countDocuments();
+         const totalReviews = await reviewCollection.countDocuments();
+
+         const analytics = {
+            totalUsers,
+            totalProducts,
+            totalReviews,
+         };
+         res.send({analytics});
+      });
 
       //  //create-payment-intent
       app.post("/create-payment-intent", verifyToken, async (req, res) => {
@@ -454,10 +495,10 @@ async function run() {
       });
 
       // Send a ping to confirm a successful connection
-      await client.db("admin").command({ ping: 1 });
-      console.log(
-         "Pinged your deployment. You successfully connected to MongoDB!"
-      );
+      // await client.db("admin").command({ ping: 1 });
+      // console.log(
+      //    "Pinged your deployment. You successfully connected to MongoDB!"
+      // );
    } finally {
       // Ensures that the client will close when you finish/error
       // await client.close();
